@@ -41,20 +41,22 @@ baseAbilities.AddOrUpdate(new Ability[]
         Nature: new AbilityNature.Element(ElementType.Fire),
         Targeting: new Targeting.GroundAoE(Range: 1200.0, Radius: 360.0, MaxTargets: 5),
         Delivery: new DeliveryMode.Pulse(PulseIntervalSeconds: 0.4),
-        Effects: [],
+        Effects:
+        [
+            new AbilityEffect.DirectDamage(310.0)
+        ],
         CastTimeSeconds: 3.25,
         CooldownSeconds: 30.0,
         SubAbilities:
         [
             new Ability(
-                Id: "meteor_shower_impact",
-                Name: "Meteor Impact",
+                Id: "meteor_shower_aftershock",
+                Name: "Meteor Aftershock",
                 Nature: new AbilityNature.Element(ElementType.Fire),
                 Targeting: new Targeting.PointBlankAoE(Radius: 120.0, MaxTargets: 5),
                 Delivery: new DeliveryMode.Blast(new ComboFinisher.Blast()),
                 Effects:
                 [
-                    new AbilityEffect.DirectDamage(310.0),
                     new AbilityEffect.ApplyStatus(
                         new StatusEffect.Control(new ControlKind.Knockdown(), DurationSeconds: 1.0, BreakbarDamage: 100.0),
                         EffectTarget.Enemy)

@@ -86,7 +86,11 @@ public union StatusEffect(
     public readonly record struct Boon(
         BoonType Type,
         StatValue<double> DurationSeconds,
-        StatValue<int> Stacks);
+        StatValue<int> Stacks,
+        StackingMode? StackingOverride = null)
+    {
+        public StackingMode Stacking => StackingOverride ?? Type.GetDefaultStacking();
+    }
 
     public readonly record struct DamagingCondition(
         DamagingConditionType Type,
@@ -98,7 +102,11 @@ public union StatusEffect(
     public readonly record struct SoftCondition(
         SoftConditionType Type,
         StatValue<double> DurationSeconds,
-        StatValue<int> Stacks);
+        StatValue<int> Stacks,
+        StackingMode? StackingOverride = null)
+    {
+        public StackingMode Stacking => StackingOverride ?? Type.GetDefaultStacking();
+    }
 
     public readonly record struct Control(
         ControlKind Kind,
@@ -110,3 +118,31 @@ public union StatusEffect(
         StatValue<double> DurationSeconds);
     public override string ToString() => Value?.ToString() ?? string.Empty;
 }
+// ============================================================================
+// STACKING RULES (Guild Wars 2 Intensity vs. Duration Stacking)
+// ============================================================================
+
+public enum StackingMode
+{
+    /// <summary>Multiple applications increase potency simultaneously (e.g., Might, Stability, Bleeding, Vulnerability).</summary>
+    Intensity,
+
+    /// <summary>Multiple applications queue or extend total active time (e.g., Fury, Quickness, Regeneration, Chilled).</summary>
+    Duration
+}
+
+public static class StatusStackingRules
+{
+    public static StackingMode GetDefaultStacking(this BoonType type) => type switch
+    {
+        BoonType.Might or BoonType.Stability => StackingMode.Intensity,
+        _ => StackingMode.Duration
+    };
+
+    public static StackingMode GetDefaultStacking(this SoftConditionType type) => type switch
+    {
+        SoftConditionType.Vulnerability => StackingMode.Intensity,
+        _ => StackingMode.Duration
+    };
+}
+

@@ -24,11 +24,21 @@ public readonly record struct StatValue<T>(T Base, T Flat, double Multiplier = 1
         double sum = double.CreateChecked(Base + Flat);
         return Math.Max(0.0, sum * Multiplier);
     }
-
+    /// <summary>
+    /// Evaluates back to type T (rounding away from zero only for integral types).
+    /// </summary>
     public T Evaluate()
     {
         double result = EvaluateDouble();
-        return T.IsInteger(T.Zero)
+        bool isIntegralType =
+            typeof(T) == typeof(int) ||
+            typeof(T) == typeof(long) ||
+            typeof(T) == typeof(short) ||
+            typeof(T) == typeof(byte) ||
+            typeof(T) == typeof(uint) ||
+            typeof(T) == typeof(ulong);
+
+        return isIntegralType
             ? T.CreateChecked(Math.Round(result, MidpointRounding.AwayFromZero))
             : T.CreateChecked(result);
     }

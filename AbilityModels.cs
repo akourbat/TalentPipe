@@ -13,6 +13,7 @@ public enum EffectTarget { Self, Enemy, Ally }
 public union AbilityEffect(
     AbilityEffect.DirectDamage,
     AbilityEffect.DirectHeal,
+    AbilityEffect.HealOverTime,
     AbilityEffect.Barrier,
     AbilityEffect.ApplyStatus,
     AbilityEffect.CleanseConditions,
@@ -21,11 +22,16 @@ public union AbilityEffect(
 {
     public readonly record struct DirectDamage(StatValue<double> Effect);
     public readonly record struct DirectHeal(StatValue<double> Effect);
+    public readonly record struct HealOverTime(
+        StatValue<double> TickEffect,
+        StatValue<double> DurationSeconds,
+        StatValue<double> TickIntervalSeconds);
     public readonly record struct Barrier(StatValue<double> Effect, StatValue<double> DurationSeconds);
     public readonly record struct ApplyStatus(StatusEffect Status, EffectTarget Target);
     public readonly record struct CleanseConditions(StatValue<int> Count, EffectTarget Target);
     public readonly record struct StripBoons(StatValue<int> Count, EffectTarget Target);
     public readonly record struct CreateComboField(ComboFieldType Field, StatValue<double> DurationSeconds, StatValue<double> Radius);
+
     public override string ToString() => Value?.ToString() ?? string.Empty;
 }
 

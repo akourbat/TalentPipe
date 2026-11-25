@@ -17,6 +17,7 @@ public union AbilityNature(
     public readonly record struct Physical(PhysDamageType Type);
     public readonly record struct Healing;
     public readonly record struct Utility;
+
     public override string ToString() => Value?.ToString() ?? string.Empty;
 }
 
@@ -34,6 +35,7 @@ public union Targeting(
     public readonly record struct SingleTarget(StatValue<double> Range);
     public readonly record struct PointBlankAoE(StatValue<double> Radius, StatValue<int> MaxTargets);
     public readonly record struct GroundAoE(StatValue<double> Range, StatValue<double> Radius, StatValue<int> MaxTargets);
+
     public override string ToString() => Value?.ToString() ?? string.Empty;
 }
 
@@ -60,6 +62,7 @@ public union ComboFinisher(
     public readonly record struct Projectile(StatValue<double> TriggerChance);
     public readonly record struct Leap;
     public readonly record struct Whirl;
+
     public override string ToString() => Value?.ToString() ?? string.Empty;
 }
 
@@ -77,5 +80,6 @@ public union DeliveryMode(
     public readonly record struct Blast(ComboFinisher? Finisher = null);
     public readonly record struct Beam(StatValue<double> TickIntervalSeconds);
     public readonly record struct Pulse(StatValue<double> PulseIntervalSeconds);
+
     public override string ToString() => Value?.ToString() ?? string.Empty;
 }

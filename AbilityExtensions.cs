@@ -1,7 +1,7 @@
 using System;
-using System.Linq;
-using System.Collections.Immutable;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 using System.Runtime.CompilerServices;
 
 namespace SpellTalentSystem;
@@ -18,14 +18,24 @@ public static class AbilityExtensions
     public static bool IsPhysical(this Ability ability, PhysDamageType? type = null) =>
         ability.Nature is AbilityNature.Physical(var t) && (type is null || t == type);
 
+    public static bool IsHealing(this Ability ability) =>
+        ability.Nature is AbilityNature.Healing;
+
     public static bool HasEffect<TEffect>(this Ability ability) =>
         ability.Effects.Any(e => e.Value is TEffect);
 
+    public static bool HasHealingEffect(this Ability ability) =>
+        ability.Effects.Any(e => e.Value is AbilityEffect.DirectHeal or AbilityEffect.HealOverTime or AbilityEffect.Barrier);
 
     public static bool GrantsBoon(this Ability ability, BoonType? type = null) =>
         ability.Effects.Any(e =>
-            e is AbilityEffect.ApplyStatus(StatusEffect.Boon(var t, _, _), _) &&
+            e is AbilityEffect.ApplyStatus(StatusEffect.Boon(var t, _, _, _), _) &&
             (type is null || t == type));
+
+    public static bool GrantsBoonWithStacking(this Ability ability, StackingMode stacking) =>
+        ability.Effects.Any(e =>
+            e is AbilityEffect.ApplyStatus(StatusEffect.Boon boon, _) &&
+            boon.Stacking == stacking);
 
     public static bool AppliesCondition(this Ability ability, DamagingConditionType? type = null) =>
         ability.Effects.Any(e =>
@@ -34,8 +44,13 @@ public static class AbilityExtensions
 
     public static bool AppliesSoftCondition(this Ability ability, SoftConditionType? type = null) =>
         ability.Effects.Any(e =>
-            e is AbilityEffect.ApplyStatus(StatusEffect.SoftCondition(var t, _, _), _) &&
+            e is AbilityEffect.ApplyStatus(StatusEffect.SoftCondition(var t, _, _, _), _) &&
             (type is null || t == type));
+
+    public static bool AppliesSoftConditionWithStacking(this Ability ability, StackingMode stacking) =>
+        ability.Effects.Any(e =>
+            e is AbilityEffect.ApplyStatus(StatusEffect.SoftCondition cond, _) &&
+            cond.Stacking == stacking);
 
     public static bool AppliesControl(this Ability ability) =>
         ability.Effects.Any(e => e is AbilityEffect.ApplyStatus(StatusEffect.Control, _));
@@ -96,7 +111,7 @@ public static class AbilityExtensions
         });
 
     // ========================================================================
-    // EFFECT & SUB-ABILITY MUTATION HELPERS
+    // EFFECT, STATUS & SUB-ABILITY MUTATION HELPERS
     // ========================================================================
 
     public static Ability MapEffects(this Ability ability, Func<AbilityEffect, AbilityEffect> mapper) =>
@@ -116,6 +131,55 @@ public static class AbilityExtensions
                 ? new AbilityEffect.ApplyStatus(mapper(status), target)
                 : effect);
 
+    /// <summary>
+    /// Transforms boon applications on an ability, optionally filtered by <see cref="BoonType"/>,
+    /// <see cref="StackingMode"/>, or <see cref="EffectTarget"/>.
+    /// </summary>
+    public static Ability MapBoons(
+        this Ability ability,
+        Func<StatusEffect.Boon, StatusEffect.Boon> mapper,
+        BoonType? typeFilter = null,
+        StackingMode? stackingFilter = null,
+        EffectTarget? targetFilter = null) =>
+        ability.MapStatus<StatusEffect.Boon>(
+            boon => (typeFilter is null || boon.Type == typeFilter) &&
+                    (stackingFilter is null || boon.Stacking == stackingFilter)
+                ? mapper(boon)
+                : boon,
+            targetFilter);
+
+    /// <summary>
+    /// Transforms damaging condition applications (Burning, Bleeding, Poisoned, Torment, Confusion),
+    /// optionally filtered by <see cref="DamagingConditionType"/> or <see cref="EffectTarget"/>.
+    /// </summary>
+    public static Ability MapConditions(
+        this Ability ability,
+        Func<StatusEffect.DamagingCondition, StatusEffect.DamagingCondition> mapper,
+        DamagingConditionType? typeFilter = null,
+        EffectTarget? targetFilter = null) =>
+        ability.MapStatus<StatusEffect.DamagingCondition>(
+            cond => (typeFilter is null || cond.Type == typeFilter)
+                ? mapper(cond)
+                : cond,
+            targetFilter);
+
+    /// <summary>
+    /// Transforms non-damaging soft condition applications (Vulnerability, Chilled, Crippled, etc.),
+    /// optionally filtered by <see cref="SoftConditionType"/>, <see cref="StackingMode"/>, or <see cref="EffectTarget"/>.
+    /// </summary>
+    public static Ability MapSoftConditions(
+        this Ability ability,
+        Func<StatusEffect.SoftCondition, StatusEffect.SoftCondition> mapper,
+        SoftConditionType? typeFilter = null,
+        StackingMode? stackingFilter = null,
+        EffectTarget? targetFilter = null) =>
+        ability.MapStatus<StatusEffect.SoftCondition>(
+            cond => (typeFilter is null || cond.Type == typeFilter) &&
+                    (stackingFilter is null || cond.Stacking == stackingFilter)
+                ? mapper(cond)
+                : cond,
+            targetFilter);
+
     public static Ability AddEffect(this Ability ability, AbilityEffect effect) =>
         ability with { Effects = ability.Effects.Add(effect) };
 
@@ -123,7 +187,7 @@ public static class AbilityExtensions
         ability with { SubAbilities = ability.SubAbilities.Add(child) };
 
     // ========================================================================
-    // UNION LINQ HELPERS (Replaces .OfType<T>() for C# 15 struct unions)
+    // UNION LINQ HELPERS (Unwraps C# 15 IUnion.Value cleanly)
     // ========================================================================
 
     public static IEnumerable<TCase> OfUnionCase<TUnion, TCase>(this ImmutableArray<TUnion> source)
