@@ -3,133 +3,130 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Reactive.Linq;
-using System.Threading;
 using DynamicData;
 
 namespace SpellTalentSystem;
 
+// ============================================================================
+// STAGE 1: REACTIVE ABILITY + TALENT PIPELINE (DynamicData)
+// ============================================================================
+
 public static class AbilityTalentPipeline
 {
-    /// <summary>
-    /// Applies matching talents in ascending Priority order so earlier mutations
-    /// (e.g., element conversion) are visible to later talents in the same pass.
-    /// </summary>
-    public static (Ability Effective, ImmutableArray<string> AppliedIds) ComputeEffectiveAbility(
-        Ability baseAbility,
-        IEnumerable<Talent> equippedTalents)
-    {
-        var current = baseAbility;
-        var applied = ImmutableArray.CreateBuilder<string>();
-
-        var orderedTalents = equippedTalents
-            .OrderBy(t => t.Priority)
-            .ThenBy(t => t.Id, StringComparer.Ordinal);
-
-        foreach (var talent in orderedTalents)
+    private static readonly IComparer<Talent> TalentOrderComparer =
+        Comparer<Talent>.Create((a, b) =>
         {
-            if (talent.Transform is not null && talent.AppliesTo(current))
-            {
-                var next = talent.Transform(current);
-                if (!ReferenceEquals(next, current) && !Equals(next, current))
-                {
-                    current = next;
-                    applied.Add(talent.Id);
-                }
-            }
-        }
-
-        return (current, applied.ToImmutable());
-    }
+            int cmp = a.Priority.CompareTo(b.Priority);
+            return cmp != 0 ? cmp : StringComparer.Ordinal.Compare(a.Id, b.Id);
+        });
 
     /// <summary>
-    /// Recursively computes the effective ability and expands both:
-    /// 1) Authored child sub-abilities attached to <see cref="Ability.SubAbilities"/> (e.g., Meteor Shower -> Meteor Impact)
-    /// 2) Dynamic sub-abilities spawned by matching talents (<see cref="Talent.SpawnSubAbilities"/>)
-    /// Includes cycle protection via ancestor ID tracking.
-    /// </summary>
-    public static ResolvedAbilityNode ExpandAbilityTree(
-        Ability baseAbility,
-        IReadOnlyList<Talent> equippedTalents,
-        ImmutableHashSet<string>? visitedIds = null)
-    {
-        visitedIds ??= ImmutableHashSet<string>.Empty;
-
-        var (effective, appliedTransforms) = ComputeEffectiveAbility(baseAbility, equippedTalents);
-        var appliedAll = appliedTransforms.ToBuilder();
-        var nextVisited = visitedIds.Add(effective.Id);
-
-        var subNodes = ImmutableArray.CreateBuilder<ResolvedAbilityNode>();
-
-        // 1. Expand authored dependent sub-abilities (e.g., Meteor Impact, secondary chain hits)
-        foreach (var authoredChild in effective.SubAbilities)
-        {
-            if (nextVisited.Contains(authoredChild.Id))
-                continue;
-
-            subNodes.Add(ExpandAbilityTree(authoredChild, equippedTalents, nextVisited));
-        }
-
-        // 2. Expand talent-spawned sub-abilities
-        var spawners = equippedTalents
-            .Where(t => t.SpawnSubAbilities is not null)
-            .OrderBy(t => t.Priority)
-            .ThenBy(t => t.Id, StringComparer.Ordinal);
-
-        foreach (var talent in spawners)
-        {
-            if (!talent.AppliesTo(effective))
-                continue;
-
-            if (!appliedAll.Contains(talent.Id))
-                appliedAll.Add(talent.Id);
-
-            foreach (var spawnedBase in talent.SpawnSubAbilities!(effective))
-            {
-                if (nextVisited.Contains(spawnedBase.Id))
-                    continue;
-
-                subNodes.Add(ExpandAbilityTree(spawnedBase, equippedTalents, nextVisited));
-            }
-        }
-
-        // Clear raw authored SubAbilities on EffectiveAbility so the resolved tree
-        // holds the enriched children exclusively in ResolvedAbilityNode.SubAbilities.
-        var normalizedEffective = effective with { SubAbilities = ImmutableArray<Ability>.Empty };
-
-        return new ResolvedAbilityNode(
-            normalizedEffective,
-            appliedAll.ToImmutable(),
-            subNodes.ToImmutable());
-    }
-
-    /// <summary>
-    /// Reactive pipeline using AutoRefreshOnObservable + Transform(transformOnRefresh: true)
-    /// and structural equality filtering so unchanged abilities emit zero ChangeReason.Update events.
+    /// Creates a live, incremental DynamicData stream of talent-resolved ability trees.
     /// </summary>
     public static IObservable<IChangeSet<ResolvedAbilityNode, string>> BuildReactiveAbilityCache(
-        ISourceCache<Ability, string> baseAbilities,
-        ISourceCache<Talent, string> equippedTalents)
+        IObservableCache<Ability, string> baseAbilities,
+        IObservableCache<Talent, string> equippedTalents)
     {
-        var latestTalents = Array.Empty<Talent>();
+        ArgumentNullException.ThrowIfNull(baseAbilities);
+        ArgumentNullException.ThrowIfNull(equippedTalents);
 
-        var talentChanged = equippedTalents
+        var sortedTalents = equippedTalents
             .Connect()
-            .QueryWhenChanged(query => query.Items.ToArray())
-            .Do(snapshot => Volatile.Write(ref latestTalents, snapshot))
-            .Publish()
+            .QueryWhenChanged(query =>
+            {
+                if (query.Count == 0)
+                {
+                    return Array.Empty<Talent>();
+                }
+
+                var array = query.Items.ToArray();
+                Array.Sort(array, TalentOrderComparer);
+                return array;
+            })
+            .StartWith(Array.Empty<Talent>())
+            .Replay(1)
             .RefCount();
 
         return baseAbilities
             .Connect()
-            .AutoRefreshOnObservable(_ => talentChanged)
-            .Transform(
-                ability => ExpandAbilityTree(ability, Volatile.Read(ref latestTalents)),
-                transformOnRefresh: true)
-            .Select(changeSet => (IChangeSet<ResolvedAbilityNode, string>)new ChangeSet<ResolvedAbilityNode, string>(
-                changeSet.Where(change =>
-                    change.Reason != ChangeReason.Update ||
-                    !change.Previous.HasValue ||
-                    !Equals(change.Previous.Value, change.Current))))
-            .Where(changeSet => changeSet.Count > 0);
+            .TransformOnObservable((baseAbility, _) =>
+                sortedTalents
+                    .Select(talents => ExpandAbilityTree(baseAbility, talents))
+                    .DistinctUntilChanged());
+    }
+
+    /// <summary>
+    /// Recursively applies all matching talents to <paramref name="root"/> and expands both
+    /// authored <see cref="Ability.SubAbilities"/> and talent-spawned sub-abilities into a
+    /// tree of <see cref="ResolvedAbilityNode"/>s, with cycle protection via visited IDs.
+    /// </summary>
+    public static ResolvedAbilityNode ExpandAbilityTree(
+        Ability root,
+        IReadOnlyList<Talent> orderedTalents,
+        HashSet<string>? visited = null)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(orderedTalents);
+
+        visited ??= new HashSet<string>(StringComparer.Ordinal);
+        visited.Add(root.Id);
+
+        var current = root;
+        var appliedTalentIds = ImmutableArray.CreateBuilder<string>();
+        var spawnedChildren = ImmutableArray.CreateBuilder<Ability>();
+
+        for (int i = 0; i < orderedTalents.Count; i++)
+        {
+            var talent = orderedTalents[i];
+            if (!talent.AppliesTo(current))
+            {
+                continue;
+            }
+
+            appliedTalentIds.Add(talent.Id);
+
+            if (talent.Transform is { } transform)
+            {
+                current = transform(current);
+            }
+
+            if (talent.SpawnSubAbilities is { } spawn)
+            {
+                foreach (var spawned in spawn(current))
+                {
+                    spawnedChildren.Add(spawned);
+                }
+            }
+        }
+
+        var resolvedChildren = ImmutableArray.CreateBuilder<ResolvedAbilityNode>(
+            current.SubAbilities.Length + spawnedChildren.Count);
+
+        for (int i = 0; i < current.SubAbilities.Length; i++)
+        {
+            var child = current.SubAbilities[i];
+            if (visited.Add(child.Id))
+            {
+                resolvedChildren.Add(ExpandAbilityTree(child, orderedTalents, visited));
+            }
+        }
+
+        for (int i = 0; i < spawnedChildren.Count; i++)
+        {
+            var child = spawnedChildren[i];
+            if (visited.Add(child.Id))
+            {
+                resolvedChildren.Add(ExpandAbilityTree(child, orderedTalents, visited));
+            }
+        }
+
+        var effectiveRoot = current.SubAbilities.IsEmpty
+            ? current
+            : current with { SubAbilities = ImmutableArray<Ability>.Empty };
+
+        return new ResolvedAbilityNode(
+            EffectiveAbility: effectiveRoot,
+            AppliedTalentIds: appliedTalentIds.ToImmutable(),
+            SubAbilities: resolvedChildren.ToImmutable());
     }
 }

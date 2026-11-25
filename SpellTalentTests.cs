@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using DynamicData;
 using SpellTalentSystem;
@@ -379,4 +380,68 @@ CooldownSeconds: 0.0)
         Assert.DoesNotContain(allChanges, c => c.Key == "sever_artery");
         Assert.Equal(2, allChanges.Count);
     }
+    [Fact]
+    public void NoOpTalentChanges_DoNotEmitDuplicateUpdates_ForUnaffectedAbilities()
+    {
+        using var baseAbilities = new SourceCache<Ability, string>(a => a.Id);
+        using var equippedTalents = new SourceCache<Talent, string>(t => t.Id);
+
+        var fireball = new Ability(
+            Id: "fireball",
+            Name: "Fireball",
+            Nature: new AbilityNature.Element(ElementType.Fire),
+            Targeting: new Targeting.SingleTarget(900.0),
+            Delivery: new DeliveryMode.Projectile(1200.0, 0),
+            Effects: ImmutableArray.Create<AbilityEffect>(
+                new AbilityEffect.DirectDamage(100.0)),
+            CastTimeSeconds: 1.0,
+            CooldownSeconds: 5.0);
+
+        var frostbolt = new Ability(
+            Id: "frostbolt",
+            Name: "Frostbolt",
+            Nature: new AbilityNature.Element(ElementType.Frost),
+            Targeting: new Targeting.SingleTarget(900.0),
+            Delivery: new DeliveryMode.Projectile(1100.0, 0),
+            Effects: ImmutableArray.Create<AbilityEffect>(
+                new AbilityEffect.DirectDamage(90.0)),
+            CastTimeSeconds: 0.75,
+            CooldownSeconds: 4.0);
+
+        var piercingIce = new Talent(
+            Id: "piercing_ice",
+            Name: "Piercing Ice",
+            Priority: 10,
+            AppliesTo: a => a.Nature is AbilityNature.Element(ElementType.Frost),
+            Transform: a => a with { Name = "Empowered Frostbolt" });
+
+        baseAbilities.AddOrUpdate(fireball);
+        baseAbilities.AddOrUpdate(frostbolt);
+
+        var fireballChanges = new List<ChangeReason>();
+        var frostboltChanges = new List<ChangeReason>();
+
+        using var sub = AbilityTalentPipeline
+            .BuildReactiveAbilityCache(baseAbilities, equippedTalents)
+            .Subscribe(changeSet =>
+            {
+                foreach (var change in changeSet)
+                {
+                    if (change.Key == "fireball") fireballChanges.Add(change.Reason);
+                    if (change.Key == "frostbolt") frostboltChanges.Add(change.Reason);
+                }
+            });
+
+        // Equip and unequip a Frost-only talent
+        equippedTalents.AddOrUpdate(piercingIce);
+        equippedTalents.RemoveKey("piercing_ice");
+
+        // Fireball only emitted its initial Add—zero redundant Updates
+        Assert.Equal(new[] { ChangeReason.Add }, fireballChanges);
+
+        // Frostbolt emitted Add + Update (equip) + Update (unequip)
+        Assert.Equal(new[] { ChangeReason.Add, ChangeReason.Update, ChangeReason.Update }, frostboltChanges);
+    }
+
+
 }
