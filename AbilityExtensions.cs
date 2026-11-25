@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Collections.Immutable;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace SpellTalentSystem;
 
@@ -18,7 +19,8 @@ public static class AbilityExtensions
         ability.Nature is AbilityNature.Physical(var t) && (type is null || t == type);
 
     public static bool HasEffect<TEffect>(this Ability ability) =>
-        ability.Effects.Any(e => e is TEffect);
+        ability.Effects.Any(e => e.Value is TEffect);
+
 
     public static bool GrantsBoon(this Ability ability, BoonType? type = null) =>
         ability.Effects.Any(e =>
@@ -124,19 +126,22 @@ public static class AbilityExtensions
     // UNION LINQ HELPERS (Replaces .OfType<T>() for C# 15 struct unions)
     // ========================================================================
 
-    public static IEnumerable<TCase> OfUnionCase<TUnion, TCase>(this IEnumerable<TUnion> source)
+    public static IEnumerable<TCase> OfUnionCase<TUnion, TCase>(this ImmutableArray<TUnion> source)
+        where TUnion : struct, IUnion
     {
         foreach (var item in source)
         {
-            if (item is TCase matched)
+            if (item.Value is TCase matched)
                 yield return matched;
         }
     }
-    public static IEnumerable<TCase> OfUnionCase<TUnion, TCase>(this ImmutableArray<TUnion> source)
+
+    public static IEnumerable<TCase> OfUnionCase<TUnion, TCase>(this IEnumerable<TUnion> source)
+        where TUnion : struct, IUnion
     {
         foreach (var item in source)
         {
-            if (item is TCase matched)
+            if (item.Value is TCase matched)
                 yield return matched;
         }
     }

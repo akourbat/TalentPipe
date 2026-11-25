@@ -1,6 +1,4 @@
 is_global = true
-build_property.MSBuildProjectFullPath = D:\VS Studio\TalentPipe\SpellTalentSystem.csproj
-build_property.XunitTestProjectAOT = false
 build_property.TargetFramework = net11.0
 build_property.TargetFrameworkIdentifier = .NETCoreApp
 build_property.TargetFrameworkVersion = v11.0
