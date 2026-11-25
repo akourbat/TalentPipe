@@ -1,0 +1,5 @@
+D:\VS Studio\TalentPipe\obj\Debug\net10.0\SpellTalentSystem.csproj.AssemblyReference.cache
+D:\VS Studio\TalentPipe\obj\Debug\net10.0\SpellTalentSystem.GeneratedMSBuildEditorConfig.editorconfig
+D:\VS Studio\TalentPipe\obj\Debug\net10.0\SpellTalentSystem.AssemblyInfoInputs.cache
+D:\VS Studio\TalentPipe\obj\Debug\net10.0\SpellTalentSystem.AssemblyInfo.cs
+D:\VS Studio\TalentPipe\obj\Debug\net10.0\SpellTalentSystem.csproj.CoreCompileInputs.cache
